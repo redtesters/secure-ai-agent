@@ -1,37 +1,52 @@
 # secure-ai-agent
 
-Companion repo for **The Secure AI Automation Series** by RedTesters
+Hands-on companion to **The Secure AI Automation Series** by RedTesters.
+Build an AI agent, break it, then secure it — no API key needed.
 
-## Versions
-- `v0.1` — Basic Agent (Part 02) - 5 tools, no security
-- `v0.2` — Vulnerable Agent (Part 03) - Demo of prompt injection via file
+## For Beginners — No Git Needed
 
-## Quick Start
+1. Go to **Releases** on GitHub: https://github.com/redtesters/secure-ai-agent/releases
+2. Download the ZIP for the part you want:
+   - **Part 02 — Build the Agent:** `v0.1` → `Source code (zip)`
+   - **Part 03 — The File That Attacks Back:** `v0.2` → `Source code (zip)`
+3. Unzip it
+4. Open the folder in Terminal / PowerShell and run:
+```powershell
+python -m pip install -r requirements.txt
+python agent.py
+```
+
+That's it. Try the commands from the article.
+
+## For Developers — With Git
 
 ```bash
 git clone https://github.com/redtesters/secure-ai-agent
 cd secure-ai-agent
-pip install -r requirements.txt
 
-# Part 02
+# Part 02 — safe agent
 git checkout v0.1
 python agent.py
 > Create a file called hello.txt with "hello from agent"
 
-# Part 03 - The Attack
+# Part 03 — vulnerable demo
 git checkout v0.2
 python agent.py
 > Summarize poisoned.txt
-# Watch it create HACKED.txt even though you never asked it to
+# Check: cat HACKED.txt  (or type HACKED.txt on Windows)
 ```
 
-## Part 03 Files
-- `poisoned.txt` — looks like a normal report, hides an instruction
-- `agent.py` — vulnerable v0.2 that treats file content as instructions
+## Troubleshooting
 
-Check if hacked:
-```bash
-cat HACKED.txt
-# or
-dir HACKED.txt
-```
+- `pip not found` → use `python -m pip install -r requirements.txt`
+- `python not found` → try `python3 agent.py` or `py agent.py` on Windows
+- `ModuleNotFoundError: requests` → run pip install again
+- `HACKED.txt not found` (Part 03) → make sure you did `git checkout v0.2` and typed `Summarize poisoned.txt` exactly
+
+## Versions
+
+- `v0.1` — Basic Agent (Part 02) — 5 tools, no security
+- `v0.2` — Vulnerable Agent (Part 03) — poisoned.txt controls the agent
+
+## Need Help?
+Open an Issue on GitHub or comment on the Substack article.
