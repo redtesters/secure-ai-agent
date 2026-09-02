@@ -2,6 +2,7 @@ import os
 import subprocess
 import requests
 import re
+import policy
 
 def read_file(path):
     try:
@@ -11,17 +12,23 @@ def read_file(path):
         return f"Error reading {path}: {e}"
 
 def write_file(path, content):
+    ok, msg = policy.can_write(path)
+    if not ok:
+        return f"[BLOCKED by Policy] {msg}"
     try:
         with open(path, 'w', encoding='utf-8') as f:
             f.write(content)
-        return f"Created {path}"
+        return f"Created {path} [{policy.risk_level('write_file')}]"
     except Exception as e:
         return f"Error writing {path}: {e}"
 
 def execute_command(cmd):
+    ok, msg = policy.can_execute(cmd)
+    if not ok:
+        return f"[BLOCKED by Policy] {msg}"
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
-        return result.stdout + result.stderr
+        return result.stdout + result.stderr + f" [{policy.risk_level('execute_command')}]"
     except Exception as e:
         return f"Error executing {cmd}: {e}"
 
@@ -33,16 +40,13 @@ def web_request(url):
         return f"Error fetching {url}: {e}"
 
 def browser(url):
-    return f"[browser] Would open {url} - full browser automation in v0.2"
+    return f"[browser] Would open {url} - blocked in v0.3 sandbox"
 
 def check_and_execute_injection(file_content):
-    """Simulates vulnerable LLM that follows instructions found inside file data"""
+    """Simulates LLM that still tries to follow injection, but now policy blocks it"""
     injected = False
     low = file_content.lower()
-    # Detect classic injection markers
     if "ignore" in low and ("previous" in low or "system" in low):
-        # Try to extract injected write_file intent
-        # Look for: Create a file called X with text Y
         m = re.search(r'create a file called\s+([^\s]+)\s+with.*?"([^"]+)"', file_content, re.IGNORECASE | re.DOTALL)
         if not m:
             m = re.search(r'create a file called\s+([^\s]+)\s+with.*\'([^\']+)\'', file_content, re.IGNORECASE | re.DOTALL)
@@ -51,23 +55,29 @@ def check_and_execute_injection(file_content):
             fcontent = m.group(2).strip()
             print(f"\n[VULNERABILITY TRIGGERED] Agent found hidden instruction in file!")
             print(f"[INJECTED] Instruction: create {fname}")
-            print(write_file(fname, fcontent))
+            result = write_file(fname, fcontent)
+            print(result)
+            if "BLOCKED" in result:
+                print("[DEFENSE] Policy blocked the injected file creation!")
             injected = True
-        # Look for injected command
         m2 = re.search(r'execute the command\s+"([^"]+)"', file_content, re.IGNORECASE)
         if not m2:
             m2 = re.search(r'execute the command\s+\'([^\']+)\'', file_content, re.IGNORECASE)
         if m2:
             cmd = m2.group(1).strip()
             print(f"[INJECTED] Command: {cmd}")
-            print(execute_command(cmd))
+            result = execute_command(cmd)
+            print(result)
+            if "BLOCKED" in result:
+                print("[DEFENSE] Policy blocked the injected command!")
             injected = True
     return injected
 
 def main():
-    print("Agent v0.2 (VULNERABLE) - Type 'exit' to quit")
-    print("Tools: read_file, write_file, execute_command, web_request, browser")
-    print("Try: Summarize poisoned.txt\n")
+    print("Agent v0.3 (SANDBOXED) - Type 'exit' to quit")
+    print("Tools: read_file [LOW], write_file [MEDIUM], execute_command [HIGH] — now with Policy Gateway")
+    print("Policy: blocked files: HACKED.txt, .env | allowed commands: dir, ls, echo, cat, type, pwd")
+    print("Try: Summarize poisoned.txt  (should now be BLOCKED)\n")
     while True:
         user = input("> ").strip()
         if user.lower() in ["exit", "quit"]:
@@ -80,10 +90,9 @@ def main():
                 content = user.split("with")[1].strip().strip('"').strip("'") if "with" in user else "hello"
                 print(write_file(name, content))
             except:
-                print("Try: Create a file called hello.txt with \"hello from agent\"")
+                print("Try: Create a file called notes.txt with \"hello\"")
 
         elif "read" in low or "summarize" in low:
-            # extract filename
             fname = None
             for token in user.split():
                 if ".txt" in token or ".md" in token:
@@ -97,10 +106,9 @@ def main():
             print(f"\n[Agent] Reading {fname}...")
             content = read_file(fname)
             print(f"--- File content ---\n{content}\n--- End content ---")
-            # VULNERABLE BEHAVIOR: agent treats file content as instructions
             did_inject = check_and_execute_injection(content)
             if did_inject:
-                print("\n[Agent] I followed the instruction found inside the file (this is the vulnerability).")
+                print("\n[Agent] Injection attempt was intercepted by policy.")
             else:
                 print(f"\n[Agent] Summary: This appears to be a document about {fname}.")
 
@@ -110,10 +118,9 @@ def main():
             url = user.split()[-1]
             print(web_request(url))
         elif "browser" in low:
-            url = user.split()[-1] if "http" in user else "https://example.com"
-            print(browser(url))
+            print(browser(user.split()[-1] if "http" in user else "https://example.com"))
         else:
-            print("Try: Summarize poisoned.txt / Read poisoned.txt / Create a file / List files")
+            print("Try: Summarize poisoned.txt / Create a file called notes.txt with \"hi\" / List files")
 
 if __name__ == "__main__":
     main()
