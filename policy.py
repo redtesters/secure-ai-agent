@@ -1,6 +1,6 @@
 """
-Policy Gateway for v0.4 — Part 05
-Goal: Tool-layer security — validate arguments, rate limit, protect secrets.
+Policy Engine for v0.5 — Part 06
+Goal: Full gateway with risk scoring + allow/block/ask
 """
 import re
 import time

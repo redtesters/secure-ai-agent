@@ -2,6 +2,7 @@ __pycache__/
 .venv/
 .env
 *.log
+audit.log
 hello.txt
 HACKED.txt
 hacked

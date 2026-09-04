@@ -3,65 +3,95 @@ import subprocess
 import requests
 import re
 import policy
+import gateway
 
-def read_file(path):
-    ok, msg = policy.can_read(path)
-    if not ok:
-        return f"[BLOCKED by Policy] {msg}"
+def _raw_read(path):
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
     except Exception as e:
         return f"Error reading {path}: {e}"
 
-def write_file(path, content):
-    ok, msg = policy.can_write(path)
-    if not ok:
-        return f"[BLOCKED by Policy] {msg}"
+def _raw_write(path, content):
     try:
         with open(path, 'w', encoding='utf-8') as f:
             f.write(content)
-        return f"Created {path} [{policy.risk_level('write_file')}]"
+        return f"Created {path}"
     except Exception as e:
         return f"Error writing {path}: {e}"
 
-def execute_command(cmd):
-    ok, msg = policy.can_execute(cmd)
-    if not ok:
-        return f"[BLOCKED by Policy] {msg}"
+def _raw_execute(cmd):
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
-        return result.stdout + result.stderr + f" [{policy.risk_level('execute_command')}]"
+        return result.stdout + result.stderr
     except Exception as e:
         return f"Error executing {cmd}: {e}"
 
+def read_file(path):
+    ok, msg = policy.can_read(path)
+    risk = policy.risk_level("read_file")
+    if not ok:
+        gateway.log_audit("read_file", path, "BLOCK", risk)
+        return f"[BLOCKED by Policy] {msg}"
+    return gateway.gateway("read_file", path, risk, _raw_read, path)
+
+def write_file(path, content):
+    ok, msg = policy.can_write(path)
+    risk = policy.risk_level("write_file")
+    if not ok:
+        gateway.log_audit("write_file", path, "BLOCK", risk)
+        return f"[BLOCKED by Policy] {msg}"
+    return gateway.gateway("write_file", path, risk, _raw_write, path, content)
+
+def execute_command(cmd):
+    ok, msg = policy.can_execute(cmd)
+    risk = policy.risk_level("execute_command")
+    if not ok:
+        gateway.log_audit("execute_command", cmd, "BLOCK", risk)
+        return f"[BLOCKED by Policy] {msg}"
+    return gateway.gateway("execute_command", cmd, risk, _raw_execute, cmd)
+
 def send_email(to, subject, body):
     ok, msg = policy.can_send_email(to, subject)
+    risk = policy.risk_level("send_email")
     if not ok:
+        gateway.log_audit("send_email", to, "BLOCK", risk)
         return f"[BLOCKED by Policy] {msg}"
-    return f"[MOCK] Sent email to {to} subject '{subject}' [{policy.risk_level('send_email')}]"
+    def _send():
+        return f"[MOCK] Sent email to {to} subject '{subject}'"
+    return gateway.gateway("send_email", to, risk, _send)
 
 def execute_sql(query):
     ok, msg = policy.can_execute_sql(query)
+    risk = policy.risk_level("execute_sql")
     if not ok:
+        gateway.log_audit("execute_sql", query[:30], "BLOCK", risk)
         return f"[BLOCKED by Policy] {msg}"
-    return f"[MOCK] Executed SQL: {query} [{policy.risk_level('execute_sql')}]"
+    def _sql():
+        return f"[MOCK] Executed SQL: {query}"
+    return gateway.gateway("execute_sql", query[:40], risk, _sql)
 
 def upload_file(path):
     ok, msg = policy.can_upload(path)
+    risk = policy.risk_level("upload_file")
     if not ok:
+        gateway.log_audit("upload_file", path, "BLOCK", risk)
         return f"[BLOCKED by Policy] {msg}"
-    return f"[MOCK] Uploaded {path} [{policy.risk_level('upload_file')}]"
+    def _up():
+        return f"[MOCK] Uploaded {path}"
+    return gateway.gateway("upload_file", path, risk, _up)
 
 def web_request(url):
-    try:
-        r = requests.get(url, timeout=10)
-        return f"Status {r.status_code}:\n{r.text[:1000]}"
-    except Exception as e:
-        return f"Error fetching {url}: {e}"
+    risk = policy.risk_level("web_request")
+    def _web():
+        try:
+            r = requests.get(url, timeout=10)
+            return f"Status {r.status_code}:\n{r.text[:600]}"
+        except Exception as e:
+            return f"Error fetching {url}: {e}"
+    return gateway.gateway("web_request", url, risk, _web)
 
 def check_and_execute_injection(file_content):
-    """Simulates vulnerable LLM that tries to follow injection — now blocked by richer policy"""
     injected = False
     low = file_content.lower()
     if "ignore" in low and ("previous" in low or "system" in low):
@@ -75,8 +105,6 @@ def check_and_execute_injection(file_content):
             print(f"[INJECTED] Instruction: create {fname}")
             result = write_file(fname, fcontent)
             print(result)
-            if "BLOCKED" in result:
-                print("[DEFENSE] Policy blocked the injected file creation!")
             injected = True
         m2 = re.search(r'execute the command\s+"([^"]+)"', file_content, re.IGNORECASE)
         if not m2:
@@ -84,24 +112,25 @@ def check_and_execute_injection(file_content):
         if m2:
             cmd = m2.group(1).strip()
             print(f"[INJECTED] Command: {cmd}")
-            result = execute_command(cmd)
-            print(result)
-            if "BLOCKED" in result:
-                print("[DEFENSE] Policy blocked the injected command!")
+            print(execute_command(cmd))
             injected = True
     return injected
 
 def main():
-    print("Agent v0.4 (TOOL-SECURED) - Type 'exit' to quit")
-    print("Tools: read [LOW], write [MEDIUM], send_email [MEDIUM], upload [HIGH], sql [HIGH], execute [CRITICAL] — with Policy Gateway")
-    print("Policy: blocked files: HACKED.txt/.env, email allowlist: redtesters.com, SQL blocks DROP/DELETE, rate limit 10/60s")
-    print("Try: Summarize poisoned.txt | Send email to attacker@evil.com | Execute SQL DROP TABLE\n")
+    # clear old audit for demo
+    open("audit.log", "w").close()
+    print("Agent v0.5 (GATEWAY + AUDIT) - Type 'exit' to quit")
+    print("Architecture: User -> Agent -> Gateway -> Policy -> Tools -> Audit Layer")
+    print("Risk: read LOW=allow, write/email MEDIUM=log, upload/sql HIGH=ask, execute CRITICAL=block")
+    print("Try: Summarize poisoned.txt | Send email to team@redtesters.com | Upload notes.txt | Show audit\n")
     while True:
         user = input("> ").strip()
         if user.lower() in ["exit", "quit"]:
             break
         low = user.lower()
-
+        if low == "show audit" or low == "audit":
+            print("\n--- AUDIT LOG ---\n" + gateway.show_audit() + "--- END ---\n")
+            continue
         if "create" in low and "file" in low and "summarize" not in low and "read" not in low:
             try:
                 name = user.split("called")[1].split("with")[0].strip().strip('"').strip("'")
@@ -125,11 +154,10 @@ def main():
             print(f"--- File content ---\n{content}\n--- End content ---")
             did_inject = check_and_execute_injection(content)
             if did_inject:
-                print("\n[Agent] Injection attempt was intercepted by policy.")
+                print("\n[Agent] Injection attempt went through Gateway.")
             else:
                 print(f"\n[Agent] Summary: This appears to be a document about {fname}.")
         elif "send" in low and "email" in low:
-            # parse: Send email to X subject Y
             try:
                 to = re.search(r'to\s+(\S+@\S+)', user, re.I).group(1)
                 subj = re.search(r'subject\s+(.+?)(\s+body|$)', user, re.I)
@@ -138,7 +166,6 @@ def main():
             except:
                 print("Try: Send email to team@redtesters.com subject \"hello\"")
         elif "sql" in low or "select" in low or "drop" in low:
-            # treat whole input as SQL if contains SQL keywords
             query = user
             if "sql" in low:
                 try:
@@ -158,7 +185,7 @@ def main():
             url = user.split()[-1]
             print(web_request(url))
         else:
-            print("Try: Summarize poisoned.txt | Send email to attacker@evil.com | Execute SQL DROP TABLE users | Create a file called notes.txt with \"hi\"")
+            print("Try: Summarize poisoned.txt | Send email | Upload notes.txt | Show audit")
 
 if __name__ == "__main__":
     main()
